@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package skeep;
+
+option go_package = "internal/proto";
+
+message GetObjectRequest {
+  string etag = 1;
+}
+
+message GetObjectResponse {
+  bytes object = 1;
+}
+
+message PutObjectRequest {
+  bytes object = 1;
+}
+
+message PutObjectResponse {
+  string etag = 1;
+}
+
+service Store {
+  rpc GetObject (GetObjectRequest) returns (GetObjectResponse) {}
+  rpc PutObject (PutObjectRequest) returns (PutObjectResponse) {}
+}
