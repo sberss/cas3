@@ -35,11 +35,11 @@ func newS3Store(backingBucket string, concurrency int, config aws.Config) *s3Sto
 // Get takes the etag of an object and gets it from the S3 backing store.
 func (s *s3Store) Get(etag string) ([]byte, error) {
 	getObjectInput := &s3.GetObjectInput{
-		Bucket: &s.backingBucket,
-		Key:    &etag,
+		Bucket: aws.String(s.backingBucket),
+		Key:    aws.String(etag),
 	}
 
-	var object []byte
+	object := make([]byte, s.getObjectBytes(etag))
 	buf := manager.NewWriteAtBuffer(object)
 	_, err := s.downloader.Download(context.Background(), buf, getObjectInput)
 	if err != nil {
@@ -55,12 +55,17 @@ func (s *s3Store) Put(object []byte) (string, error) {
 	encodedMd5 := base64.StdEncoding.EncodeToString(md5[:])
 	etag := hex.EncodeToString(md5[:])
 
+	// If object already exists in backing store, do not upload again.
+	if s.getObjectBytes(etag) > 0 {
+		return etag, nil
+	}
+
 	putObjectInput := &s3.PutObjectInput{
 		Body:          bytes.NewReader(object),
-		Bucket:        &s.backingBucket,
-		Key:           &etag,
+		Bucket:        aws.String(s.backingBucket),
+		Key:           aws.String(etag),
 		ContentLength: int64(len(object)),
-		ContentMD5:    &encodedMd5,
+		ContentMD5:    aws.String(encodedMd5),
 	}
 	_, err := s.uploader.Upload(context.Background(), putObjectInput)
 	if err != nil {
@@ -68,4 +73,20 @@ func (s *s3Store) Put(object []byte) (string, error) {
 	}
 
 	return etag, nil
+}
+
+// getObjectBytes attempts to HEAD the S3 object stored at the given etag. If found it returns the size of the object.
+// On any error, a size of 0 is returned.
+func (s *s3Store) getObjectBytes(etag string) int64 {
+	headObjectInput := &s3.HeadObjectInput{
+		Bucket: aws.String(s.backingBucket),
+		Key:    aws.String(etag),
+	}
+
+	objectMetadata, err := s.client.HeadObject(context.Background(), headObjectInput)
+	if err != nil {
+		return 0
+	}
+
+	return objectMetadata.ContentLength
 }
