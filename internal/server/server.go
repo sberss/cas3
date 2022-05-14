@@ -18,11 +18,8 @@ type Server struct {
 	store store.Store
 }
 
-func NewServer(storeConfig *store.Config) (*Server, error) {
-	store, err := store.NewStore(storeConfig)
-	if err != nil {
-		return nil, err
-	}
+func NewServer(storeConfig *store.Config) *Server {
+	store := store.NewS3Store(storeConfig)
 
 	server := &Server{
 		store: store,
@@ -32,7 +29,7 @@ func NewServer(storeConfig *store.Config) (*Server, error) {
 	proto.RegisterStoreServer(grpcServer, server)
 	server.grpcServer = grpcServer
 
-	return server, nil
+	return server
 }
 
 // Start starts the grpc server.

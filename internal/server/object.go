@@ -1,34 +1,56 @@
 package server
 
 import (
-	"context"
+	"errors"
+	"io"
 	"log"
 
 	"github.com/sberss/cas3/internal/proto"
+	"github.com/sberss/cas3/internal/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func (s *Server) GetObject(ctx context.Context, req *proto.GetObjectRequest) (*proto.GetObjectResponse, error) {
-	object, err := s.store.Get(req.Etag)
-	if err != nil {
-		log.Println(err)
-		return nil, status.Error(codes.Internal, "error getting object")
+func (s *Server) GetObject(req *proto.GetObjectRequest, stream proto.Store_GetObjectServer) error {
+	etags := s.store.StartGet(req.Etag)
+	for _, etag := range etags {
+		objectChunk, err := s.store.GetChunk(etag)
+		if err != nil {
+			log.Print(err)
+			return status.Error(codes.Internal, "Internal error.")
+		}
+		stream.Send(&proto.GetObjectResponse{
+			ObjectChunk: objectChunk,
+		})
 	}
 
-	return &proto.GetObjectResponse{
-		Object: object,
-	}, nil
+	return nil
 }
 
-func (s *Server) PutObject(ctx context.Context, req *proto.PutObjectRequest) (*proto.PutObjectResponse, error) {
-	etag, err := s.store.Put(req.Object)
-	if err != nil {
-		log.Println(err)
-		return nil, status.Error(codes.Internal, "error storing object")
+func (s *Server) PutObject(stream proto.Store_PutObjectServer) error {
+	etags := make([]string, 0)
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&proto.PutObjectResponse{
+				Etag: s.store.FinishPut(etags),
+			})
+		}
+		if err != nil {
+			return err
+		}
+
+		etag, err := s.store.PutChunk(req.ObjectChunk)
+		if errors.Is(err, &store.ExceededChunkSizeError{}) {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err != nil {
+			log.Print(err)
+			return status.Error(codes.Internal, "Internal error.")
+		}
+
+		etags = append(etags, etag)
 	}
 
-	return &proto.PutObjectResponse{
-		Etag: etag,
-	}, nil
+	return nil
 }

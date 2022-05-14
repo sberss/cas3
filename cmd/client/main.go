@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/sberss/cas3/internal/proto"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -77,12 +77,21 @@ func getObject(host, port, etag string) error {
 		Etag: etag,
 	}
 
-	getObjectResponse, err := client.GetObject(context.Background(), getObjectRequest)
+	stream, err := client.GetObject(context.Background(), getObjectRequest)
 	if err != nil {
 		return err
 	}
 
-	os.Stdout.Write(getObjectResponse.Object)
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		os.Stdout.Write(resp.ObjectChunk)
+	}
 
 	return nil
 }
@@ -93,23 +102,52 @@ func putObject(host, port, objectPath string) error {
 		return err
 	}
 
-	object, err := os.ReadFile(objectPath)
+	object, err := os.Open(objectPath)
+	if err != nil {
+		return err
+	}
+	defer object.Close()
+
+	objectStats, err := object.Stat()
 	if err != nil {
 		return err
 	}
 
-	putObjectRequest := &proto.PutObjectRequest{
-		Object: object,
-	}
-
-	putObjectResponse, err := client.PutObject(context.Background(), putObjectRequest)
+	stream, err := client.PutObject(context.Background())
 	if err != nil {
 		return err
 	}
 
-	m := jsonpb.Marshaler{}
-	result, _ := m.MarshalToString(putObjectResponse)
-	fmt.Printf("%s\n", result)
+	maxBufSize := int64(4000000)
+	remainingBytes := objectStats.Size()
+	for remainingBytes > 0 {
+		var buffer []byte
+		if remainingBytes > maxBufSize {
+			buffer = make([]byte, maxBufSize)
+		} else {
+			buffer = make([]byte, remainingBytes)
+		}
+		_, err := object.Read(buffer)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		stream.Send(&proto.PutObjectRequest{
+			ObjectChunk: buffer,
+		})
+
+		remainingBytes -= int64(len(buffer))
+	}
+
+	putObjectResposne, err := stream.CloseAndRecv()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(putObjectResposne.Etag)
 
 	return nil
 }

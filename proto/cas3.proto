@@ -9,11 +9,11 @@ message GetObjectRequest {
 }
 
 message GetObjectResponse {
-  bytes object = 1;
+  bytes objectChunk = 1;
 }
 
 message PutObjectRequest {
-  bytes object = 1;
+  bytes objectChunk = 1;
 }
 
 message PutObjectResponse {
@@ -21,6 +21,6 @@ message PutObjectResponse {
 }
 
 service Store {
-  rpc GetObject (GetObjectRequest) returns (GetObjectResponse) {}
-  rpc PutObject (PutObjectRequest) returns (PutObjectResponse) {}
+  rpc GetObject (GetObjectRequest) returns (stream GetObjectResponse) {}
+  rpc PutObject (stream PutObjectRequest) returns (PutObjectResponse) {}
 }

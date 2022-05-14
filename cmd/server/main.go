@@ -24,10 +24,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv, err := server.NewServer(appCtx.storeConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
+	srv := server.NewServer(appCtx.storeConfig)
+
 	// Setup signal handling.
 	shutdownChan := make(chan os.Signal, 1)
 	signal.Notify(shutdownChan, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -43,11 +41,6 @@ func main() {
 }
 
 func buildContext() (*appContext, error) {
-	storeType := os.Getenv("STORE_TYPE")
-	if storeType == "" {
-		storeType = "local"
-	}
-
 	awsS3Endpoint := os.Getenv("AWS_S3_ENDPOINT")
 
 	awsS3EndpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
@@ -69,8 +62,10 @@ func buildContext() (*appContext, error) {
 	}
 
 	storeConfig := &store.Config{
-		StoreType:       storeType,
-		StoreTypeConfig: awsConfig,
+		AwsConfig:      awsConfig,
+		BackingBucket:  "cas",
+		Concurrency:    8,
+		ChunkSizeBytes: 4000000,
 	}
 
 	return &appContext{
